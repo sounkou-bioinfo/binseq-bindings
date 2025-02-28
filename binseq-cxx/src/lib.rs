@@ -74,6 +74,22 @@ impl<'a> RecordWrapper<'a> {
         self.record.paired()
     }
 
+    pub fn slen(&self) -> usize {
+        self.record.config().slen()
+    }
+
+    pub fn xlen(&self) -> usize {
+        self.record.config().xlen()
+    }
+
+    pub fn sbuf(&self) -> &[u64] {
+        self.record.sbuf()
+    }
+
+    pub fn xbuf(&self) -> &[u64] {
+        self.record.xbuf()
+    }
+
     pub fn decode_s(&self, buffer: &mut Vec<u8>) -> binseq::Result<()> {
         self.record.decode_s(buffer)
     }
