@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_char;
 use std::path::Path;
 use std::ptr;
 use std::sync::Mutex;
@@ -25,10 +25,10 @@ pub struct BinseqReader {
 }
 
 /// Opaque record type with 'static lifetime
-/// The C user must ensure the reader outlives any records
+/// This version allows records to be reused
 pub struct BinseqRecord {
-    // Use a raw pointer to avoid lifetime issues
-    record: *mut c_void,
+    // This is either None (empty record) or Some(record)
+    record: Option<RefRecord<'static>>,
 }
 
 /// Opaque buffer context to avoid reallocations
@@ -40,26 +40,35 @@ pub struct BinseqContext {
 }
 
 impl BinseqRecord {
-    fn new(record: RefRecord<'static>) -> Self {
-        let boxed = Box::new(record);
-        let ptr = Box::into_raw(boxed) as *mut c_void;
-        Self { record: ptr }
+    fn new() -> Self {
+        Self { record: None }
     }
 
-    fn as_ref(&self) -> &RefRecord<'static> {
-        unsafe { &*(self.record as *const RefRecord) }
+    fn set(&mut self, record: RefRecord<'static>) {
+        self.record = Some(record);
+    }
+
+    fn as_ref(&self) -> Option<&RefRecord<'static>> {
+        self.record.as_ref()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.record.is_none()
+    }
+
+    fn clear(&mut self) {
+        self.record = None;
     }
 }
 
-impl Drop for BinseqRecord {
-    fn drop(&mut self) {
-        if !self.record.is_null() {
-            unsafe {
-                drop(Box::from_raw(self.record as *mut RefRecord));
-            }
-            self.record = ptr::null_mut();
-        }
-    }
+/// Creates a new empty record for reuse
+///
+/// # Safety
+/// The caller must free the record with binseq_record_free when done
+#[no_mangle]
+pub extern "C" fn binseq_record_new() -> *mut BinseqRecord {
+    let record = BinseqRecord::new();
+    Box::into_raw(Box::new(record))
 }
 
 /// Creates a new decoding context with pre-allocated buffers
@@ -150,18 +159,25 @@ pub unsafe extern "C" fn binseq_reader_xlen(reader: *const BinseqReader) -> u32 
     (*reader).reader.header().xlen
 }
 
-/// Gets a record by index
+/// Gets a record by index and stores it in a reusable record container
+/// Returns true if successful, false on error
 ///
 /// # Safety
-/// The caller must free the record with binseq_record_free when done
+/// The record container must be created with binseq_record_new
 #[no_mangle]
 pub unsafe extern "C" fn binseq_reader_get_record(
     reader: *const BinseqReader,
     idx: usize,
-) -> *mut BinseqRecord {
+    record_container: *mut BinseqRecord,
+) -> bool {
     if reader.is_null() {
         set_last_error("Null reader");
-        return ptr::null_mut();
+        return false;
+    }
+
+    if record_container.is_null() {
+        set_last_error("Null record container");
+        return false;
     }
 
     let record_result = (*reader).reader.get(idx);
@@ -170,17 +186,37 @@ pub unsafe extern "C" fn binseq_reader_get_record(
         Ok(record) => {
             // Transmute the lifetime to 'static - this is unsafe but necessary for C FFI
             let record: RefRecord<'static> = std::mem::transmute(record);
-            let binseq_record = BinseqRecord::new(record);
-            Box::into_raw(Box::new(binseq_record))
+            // Store the record in the container
+            (*record_container).set(record);
+            true
         }
         Err(err) => {
             set_last_error(&format!("Failed to get record: {}", err));
-            ptr::null_mut()
+            // Clear the record container
+            (*record_container).clear();
+            false
         }
     }
 }
 
-/// Frees a record
+/// Clear a record container (does not free it)
+#[no_mangle]
+pub unsafe extern "C" fn binseq_record_clear(record: *mut BinseqRecord) {
+    if !record.is_null() {
+        (*record).clear();
+    }
+}
+
+/// Check if a record container is empty (contains no valid record)
+#[no_mangle]
+pub unsafe extern "C" fn binseq_record_is_empty(record: *const BinseqRecord) -> bool {
+    if record.is_null() {
+        return true;
+    }
+    (*record).is_empty()
+}
+
+/// Frees a record container
 #[no_mangle]
 pub unsafe extern "C" fn binseq_record_free(record: *mut BinseqRecord) {
     if !record.is_null() {
@@ -194,7 +230,10 @@ pub unsafe extern "C" fn binseq_record_flag(record: *const BinseqRecord) -> u64 
     if record.is_null() {
         return 0;
     }
-    (*record).as_ref().flag()
+    match (*record).as_ref() {
+        Some(r) => r.flag(),
+        None => 0,
+    }
 }
 
 /// Checks if a record is paired
@@ -203,7 +242,10 @@ pub unsafe extern "C" fn binseq_record_is_paired(record: *const BinseqRecord) ->
     if record.is_null() {
         return false;
     }
-    (*record).as_ref().paired()
+    match (*record).as_ref() {
+        Some(r) => r.paired(),
+        None => false,
+    }
 }
 
 /// Decodes the primary sequence into the context's internal buffer
@@ -217,9 +259,18 @@ pub unsafe extern "C" fn binseq_record_decode_primary(
         return 0;
     }
 
+    // Get the record
+    let r = match (*record).as_ref() {
+        Some(r) => r,
+        None => {
+            set_last_error("Empty record");
+            return 0;
+        }
+    };
+
     // Use the reusable buffer from the context
     (*context).sbuf.clear();
-    let result = (*record).as_ref().decode_s(&mut (*context).sbuf);
+    let result = r.decode_s(&mut (*context).sbuf);
 
     match result {
         Ok(_) => (*context).sbuf.len(),
@@ -241,9 +292,18 @@ pub unsafe extern "C" fn binseq_record_decode_extended(
         return 0;
     }
 
+    // Get the record
+    let r = match (*record).as_ref() {
+        Some(r) => r,
+        None => {
+            set_last_error("Empty record");
+            return 0;
+        }
+    };
+
     // Use the reusable buffer from the context
     (*context).xbuf.clear();
-    let result = (*record).as_ref().decode_x(&mut (*context).xbuf);
+    let result = r.decode_x(&mut (*context).xbuf);
 
     match result {
         Ok(_) => (*context).xbuf.len(),

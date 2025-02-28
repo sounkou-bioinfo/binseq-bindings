@@ -5,7 +5,7 @@
 #include <string.h>
 #include <time.h>
 
-// Only include the main binseq API - no custom headers needed
+// Include the binseq API
 #include "../binseq.h"
 
 int main(int argc, char **argv) {
@@ -43,6 +43,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // Create a reusable record container
+  struct BinseqRecord *record = binseq_record_new();
+  if (!record) {
+    printf("Failed to create record container\n");
+    binseq_context_free(ctx);
+    binseq_reader_close(reader);
+    return 1;
+  }
+
+  // Print the first few records
+  size_t records_to_show = (num_records < 5) ? num_records : 5;
+  printf("\nFirst %zu records:\n", records_to_show);
+  printf("------------------\n");
+
   // Allocate buffers for displaying sequences (with null terminator)
   char *sbuf = (char *)malloc(slen + 1);
   char *xbuf = NULL;
@@ -53,16 +67,16 @@ int main(int argc, char **argv) {
   if (!sbuf || (xlen > 0 && !xbuf)) {
     printf("Memory allocation failed\n");
     free(sbuf);
-    if (xbuf)
-      free(xbuf);
+    free(xbuf);
+    binseq_record_free(record);
     binseq_context_free(ctx);
     binseq_reader_close(reader);
     return 1;
   }
 
-  for (size_t i = 0; i < num_records; i++) {
-    struct BinseqRecord *record = binseq_reader_get_record(reader, i);
-    if (!record) {
+  for (size_t i = 0; i < records_to_show; i++) {
+    // Load the record into our reusable container
+    if (!binseq_reader_get_record(reader, i, record)) {
       printf("Error reading record %zu: %s\n", i, binseq_last_error());
       continue;
     }
@@ -90,13 +104,44 @@ int main(int argc, char **argv) {
       printf("  Paired (%zu bp): %s\n", x_len, xbuf);
     }
 
-    binseq_record_free(record);
+    // No need to free the record after each use - it will be reused!
+  }
+
+  // Performance test
+  if (num_records > 10) {
+    printf("\nPerformance test: processing all %zu records...\n", num_records);
+    clock_t start_time = clock();
+
+    size_t total_bases = 0;
+    for (size_t i = 0; i < num_records; i++) {
+      // Reuse the same record container for each record
+      if (!binseq_reader_get_record(reader, i, record)) {
+        continue;
+      }
+
+      // Decode sequences and count bases
+      size_t s_len = binseq_record_decode_primary(record, ctx);
+      total_bases += s_len;
+
+      if (binseq_record_is_paired(record)) {
+        size_t x_len = binseq_record_decode_extended(record, ctx);
+        total_bases += x_len;
+      }
+
+      // No need to free the record after each use
+    }
+
+    clock_t end_time = clock();
+    double elapsed_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+    printf("Processed %zu bases in %.4f seconds\n", total_bases, elapsed_time);
+    printf("%.2f million bases per second\n",
+           total_bases / elapsed_time / 1000000.0);
   }
 
   // Clean up
   free(sbuf);
-  if (xbuf)
-    free(xbuf);
+  free(xbuf);
+  binseq_record_free(record);
   binseq_context_free(ctx);
   binseq_reader_close(reader);
 
