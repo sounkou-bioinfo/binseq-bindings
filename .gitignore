@@ -1,4 +1,6 @@
 /target
+**Cargo.lock
+
 binseq-c/examples/*.fq
 binseq-c/examples/*.bq
 binseq-c/examples/*.json

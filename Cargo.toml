@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["binseq-c"]
+members = ["binseq-c", "binseq-cxx"]
 
 [workspace.dependencies]
 binseq = { git = "ssh://github.com/noamteyssier/binseq" }
