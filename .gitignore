@@ -1,0 +1,6 @@
+/target
+examples/*.fq
+examples/*.bq
+examples/*.json
+examples/simple_example
+binseq.h
