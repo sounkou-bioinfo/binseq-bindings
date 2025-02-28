@@ -73,7 +73,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "binseq-bindings"
+name = "binseq-bindings-c"
 version = "0.1.0"
 dependencies = [
  "binseq",

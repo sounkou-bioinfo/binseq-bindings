@@ -1,0 +1,14 @@
+[package]
+name = "binseq-bindings-c"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binseq = { workspace = true }
+
+[build-dependencies]
+cbindgen = "0.28.0"
+
+[lib]
+name = "binseq"
+crate-type = ["cdylib"]

@@ -1,6 +1,6 @@
 /target
-examples/*.fq
-examples/*.bq
-examples/*.json
-examples/simple_example
-binseq.h
+binseq-c/examples/*.fq
+binseq-c/examples/*.bq
+binseq-c/examples/*.json
+binseq-c/examples/simple_example
+binseq-c/binseq.h
