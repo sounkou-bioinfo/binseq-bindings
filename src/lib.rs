@@ -31,6 +31,14 @@ pub struct BinseqRecord {
     record: *mut c_void,
 }
 
+/// Opaque buffer context to avoid reallocations
+pub struct BinseqContext {
+    // Reusable buffer for primary sequence decoding
+    sbuf: Vec<u8>,
+    // Reusable buffer for extended sequence decoding
+    xbuf: Vec<u8>,
+}
+
 impl BinseqRecord {
     fn new(record: RefRecord<'static>) -> Self {
         let boxed = Box::new(record);
@@ -51,6 +59,27 @@ impl Drop for BinseqRecord {
             }
             self.record = ptr::null_mut();
         }
+    }
+}
+
+/// Creates a new decoding context with pre-allocated buffers
+///
+/// # Safety
+/// The caller must free the context with binseq_context_free when done
+#[no_mangle]
+pub extern "C" fn binseq_context_new() -> *mut BinseqContext {
+    let context = BinseqContext {
+        sbuf: Vec::default(), // Initial capacity, will grow as needed
+        xbuf: Vec::default(), // Initial capacity, will grow as needed
+    };
+    Box::into_raw(Box::new(context))
+}
+
+/// Frees a context
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_free(context: *mut BinseqContext) {
+    if !context.is_null() {
+        drop(Box::from_raw(context));
     }
 }
 
@@ -177,27 +206,23 @@ pub unsafe extern "C" fn binseq_record_is_paired(record: *const BinseqRecord) ->
     (*record).as_ref().paired()
 }
 
-/// Decodes the primary sequence into a buffer
-/// Returns the actual sequence length
+/// Decodes the primary sequence into the context's internal buffer
+/// Returns the sequence length
 #[no_mangle]
 pub unsafe extern "C" fn binseq_record_decode_primary(
     record: *const BinseqRecord,
-    buffer: *mut c_char,
-    buffer_size: usize,
+    context: *mut BinseqContext,
 ) -> usize {
-    if record.is_null() || buffer.is_null() {
+    if record.is_null() || context.is_null() {
         return 0;
     }
 
-    let mut dbuf = Vec::new();
-    let result = (*record).as_ref().decode_s(&mut dbuf);
+    // Use the reusable buffer from the context
+    (*context).sbuf.clear();
+    let result = (*record).as_ref().decode_s(&mut (*context).sbuf);
 
     match result {
-        Ok(_) => {
-            let copy_size = std::cmp::min(dbuf.len(), buffer_size);
-            std::ptr::copy_nonoverlapping(dbuf.as_ptr() as *const c_char, buffer, copy_size);
-            dbuf.len()
-        }
+        Ok(_) => (*context).sbuf.len(),
         Err(err) => {
             set_last_error(&format!("Failed to decode sequence: {}", err));
             0
@@ -205,32 +230,104 @@ pub unsafe extern "C" fn binseq_record_decode_primary(
     }
 }
 
-/// Decodes the paired sequence into a buffer
-/// Returns the actual sequence length
+/// Decodes the extended sequence into the context's internal buffer
+/// Returns the sequence length
 #[no_mangle]
 pub unsafe extern "C" fn binseq_record_decode_extended(
     record: *const BinseqRecord,
-    buffer: *mut c_char,
-    buffer_size: usize,
+    context: *mut BinseqContext,
 ) -> usize {
-    if record.is_null() || buffer.is_null() {
+    if record.is_null() || context.is_null() {
         return 0;
     }
 
-    let mut dbuf = Vec::new();
-    let result = (*record).as_ref().decode_x(&mut dbuf);
+    // Use the reusable buffer from the context
+    (*context).xbuf.clear();
+    let result = (*record).as_ref().decode_x(&mut (*context).xbuf);
 
     match result {
-        Ok(_) => {
-            let copy_size = std::cmp::min(dbuf.len(), buffer_size);
-            std::ptr::copy_nonoverlapping(dbuf.as_ptr() as *const c_char, buffer, copy_size);
-            dbuf.len()
-        }
+        Ok(_) => (*context).xbuf.len(),
         Err(err) => {
             set_last_error(&format!("Failed to decode paired sequence: {}", err));
             0
         }
     }
+}
+
+/// Gets a pointer to the primary sequence buffer in the context
+/// The pointer is only valid until the next call to any decode function
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_primary_ptr(
+    context: *const BinseqContext,
+) -> *const c_char {
+    if context.is_null() || (*context).sbuf.is_empty() {
+        return ptr::null();
+    }
+    (*context).sbuf.as_ptr() as *const c_char
+}
+
+/// Gets the length of the primary sequence buffer in the context
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_primary_len(context: *const BinseqContext) -> usize {
+    if context.is_null() {
+        return 0;
+    }
+    (*context).sbuf.len()
+}
+
+/// Gets a pointer to the extended sequence buffer in the context
+/// The pointer is only valid until the next call to any decode function
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_extended_ptr(
+    context: *const BinseqContext,
+) -> *const c_char {
+    if context.is_null() || (*context).xbuf.is_empty() {
+        return ptr::null();
+    }
+    (*context).xbuf.as_ptr() as *const c_char
+}
+
+/// Gets the length of the extended sequence buffer in the context
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_extended_len(context: *const BinseqContext) -> usize {
+    if context.is_null() {
+        return 0;
+    }
+    (*context).xbuf.len()
+}
+
+/// Copies the primary sequence to a user-provided buffer
+/// Returns the number of bytes copied
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_copy_primary(
+    context: *const BinseqContext,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> usize {
+    if context.is_null() || buffer.is_null() || (*context).sbuf.is_empty() {
+        return 0;
+    }
+
+    let copy_size = std::cmp::min((*context).sbuf.len(), buffer_size);
+    std::ptr::copy_nonoverlapping((*context).sbuf.as_ptr() as *const c_char, buffer, copy_size);
+    copy_size
+}
+
+/// Copies the extended sequence to a user-provided buffer
+/// Returns the number of bytes copied
+#[no_mangle]
+pub unsafe extern "C" fn binseq_context_copy_extended(
+    context: *const BinseqContext,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> usize {
+    if context.is_null() || buffer.is_null() || (*context).xbuf.is_empty() {
+        return 0;
+    }
+
+    let copy_size = std::cmp::min((*context).xbuf.len(), buffer_size);
+    std::ptr::copy_nonoverlapping((*context).xbuf.as_ptr() as *const c_char, buffer, copy_size);
+    copy_size
 }
 
 /// Gets the last error message

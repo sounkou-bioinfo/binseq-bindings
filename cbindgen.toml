@@ -8,7 +8,7 @@ parse_deps = false
 include = ["binseq"]
 
 [export]
-prefix = "binseq_"
+prefix = ""
 include = ["BinseqReader", "BinseqRecord"]
 exclude = []
 item_types = ["functions", "constants", "enums"]

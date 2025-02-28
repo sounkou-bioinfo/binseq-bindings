@@ -1,6 +1,12 @@
-#include "../binseq.h"
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// Only include the main binseq API - no custom headers needed
+#include "../binseq.h"
 
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -8,7 +14,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Open the binseq file (using struct keyword)
+  // Open the binseq file
   struct BinseqReader *reader = binseq_reader_open(argv[1]);
   if (!reader) {
     printf("Error opening file: %s\n", binseq_last_error());
@@ -29,68 +35,69 @@ int main(int argc, char **argv) {
     printf("Single-end reads\n");
   }
 
-  // Show first 5 records (or fewer if file has less)
-  // size_t records_to_show = (num_records < 5) ? num_records : 5;
-  size_t records_to_show = num_records;
-
-  // Allocate buffers for sequence data
-  char *sbuf = (char *)malloc(slen + 1);
-  char *xbuf = (char *)malloc(xlen + 1);
-
-  if (!sbuf) {
-    printf("Memory allocation failed\n");
+  // Create a decoding context
+  struct BinseqContext *ctx = binseq_context_new();
+  if (!ctx) {
+    printf("Failed to create context\n");
     binseq_reader_close(reader);
     return 1;
   }
 
+  // Allocate buffers for displaying sequences (with null terminator)
+  char *sbuf = (char *)malloc(slen + 1);
+  char *xbuf = NULL;
   if (xlen > 0) {
     xbuf = (char *)malloc(xlen + 1);
-    if (!xbuf) {
-      printf("Memory allocation failed\n");
-      free(sbuf);
-      binseq_reader_close(reader);
-      return 1;
-    }
   }
 
-  printf("\nFirst %zu records:\n", records_to_show);
-  printf("------------------\n");
+  if (!sbuf || (xlen > 0 && !xbuf)) {
+    printf("Memory allocation failed\n");
+    free(sbuf);
+    if (xbuf)
+      free(xbuf);
+    binseq_context_free(ctx);
+    binseq_reader_close(reader);
+    return 1;
+  }
 
-  for (size_t i = 0; i < records_to_show; i++) {
-    // Get the record (using struct keyword)
+  for (size_t i = 0; i < num_records; i++) {
     struct BinseqRecord *record = binseq_reader_get_record(reader, i);
     if (!record) {
       printf("Error reading record %zu: %s\n", i, binseq_last_error());
       continue;
     }
 
-    // Get the flag
     uint64_t flag = binseq_record_flag(record);
 
-    // Get the sequence
-    size_t actual_len = binseq_record_decode_primary(record, sbuf, slen);
-    sbuf[actual_len] = '\0'; // Null-terminate for printing
+    // Decode the primary sequence
+    size_t s_len = binseq_record_decode_primary(record, ctx);
 
-    // printf("Record %zu (flag=%llu):\n", i, (unsigned long long)flag);
-    // printf("  Sequence: %s\n", sbuf);
+    // Copy the sequence to our buffer and null-terminate
+    binseq_context_copy_primary(ctx, sbuf, slen);
+    sbuf[s_len] = '\0';
 
-    // Get paired sequence if available
+    printf("Record %zu (flag=%llu):\n", i, (unsigned long long)flag);
+    printf("  Sequence (%zu bp): %s\n", s_len, sbuf);
+
+    // If paired, decode the extended sequence too
     if (binseq_record_is_paired(record) && xbuf) {
-      size_t paired_actual_len =
-          binseq_record_decode_extended(record, xbuf, xlen);
-      xbuf[paired_actual_len] = '\0'; // Null-terminate for printing
-      // printf("  Paired: %s\n", xbuf);
+      size_t x_len = binseq_record_decode_extended(record, ctx);
+
+      // Copy the sequence to our buffer and null-terminate
+      binseq_context_copy_extended(ctx, xbuf, xlen);
+      xbuf[x_len] = '\0';
+
+      printf("  Paired (%zu bp): %s\n", x_len, xbuf);
     }
 
-    // Free the record when done
     binseq_record_free(record);
   }
 
   // Clean up
   free(sbuf);
-  if (xbuf) {
+  if (xbuf)
     free(xbuf);
-  }
+  binseq_context_free(ctx);
   binseq_reader_close(reader);
 
   return 0;
