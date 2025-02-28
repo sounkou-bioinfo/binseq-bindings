@@ -27,12 +27,12 @@ cargo build --release
 
 The compiled library will be available at either `./target/release/libbinseq.so` (linux) or `./target/release/libbinseq.dylib` (macOS).
 
-The C-Header will be auto-generated at `./binseq.h`.
+The C-Header will be auto-generated at `./binseq-c/binseq.h`.
 
 3. Building and Running examples
 
 ```bash
-cd examples/
+cd binseq-c/examples/
 make
 
 ./simple_example <path_to_file>.bq
