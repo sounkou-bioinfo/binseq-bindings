@@ -1,128 +1,84 @@
-use binseq::{MmapReader, RefRecord};
+use binseq::{MmapReader, RefRecord as BinseqRefRecord};
 use std::path::Path;
 
+// Create wrapper types for the binseq library
+pub struct BinseqReaderWrapper {
+    reader: MmapReader,
+}
+
+pub struct RecordWrapper<'a> {
+    record: BinseqRefRecord<'a>,
+}
+
+// The bridge between Rust and C++
 #[cxx::bridge]
 mod ffi {
-    // Shared types between Rust and C++
-    #[derive(Debug, Copy, Clone)]
-    struct BinseqHeaderInfo {
-        slen: u32,
-        xlen: u32,
-        format_version: u8,
-    }
 
-    // Rust types and functions exposed to C++
+    // Opaque Rust types exposed to C++
+    #[allow(clippy::needless_lifetimes)]
     extern "Rust" {
-        // Opaque types for C++
-        type BinseqReader;
-        type BinseqRecord;
-        type BinseqBuffer;
+        type BinseqReaderWrapper;
+        type RecordWrapper<'a>;
 
-        // Reader management
-        fn new_binseq_reader(path: &str) -> Result<Box<BinseqReader>>;
-        fn num_records(self: &BinseqReader) -> usize;
-        fn header_info(self: &BinseqReader) -> BinseqHeaderInfo;
-        fn get_record(self: &BinseqReader, idx: usize) -> Result<Box<BinseqRecord>>;
+        // Reader methods
+        fn open_mmap_reader(path: &str) -> Result<Box<BinseqReaderWrapper>>;
+        fn num_records(self: &BinseqReaderWrapper) -> usize;
+        unsafe fn get_record<'a>(
+            self: &'a BinseqReaderWrapper,
+            idx: usize,
+        ) -> Result<Box<RecordWrapper<'a>>>;
+        fn get_slen(self: &BinseqReaderWrapper) -> u32;
+        fn get_xlen(self: &BinseqReaderWrapper) -> u32;
 
-        // Record operations
-        fn flag(self: &BinseqRecord) -> u64;
-        fn is_paired(self: &BinseqRecord) -> bool;
-        fn id(self: &BinseqRecord) -> usize;
-
-        // Buffer management
-        fn new_binseq_buffer() -> Box<BinseqBuffer>;
-
-        // Decoding operations
-        fn decode_primary(self: &BinseqRecord, buffer: &mut BinseqBuffer) -> Result<usize>;
-        fn decode_extended(self: &BinseqRecord, buffer: &mut BinseqBuffer) -> Result<usize>;
-
-        // Buffer access
-        fn data(self: &BinseqBuffer) -> &[u8];
-        fn data_mut(self: &mut BinseqBuffer) -> &mut [u8];
-        fn clear(self: &mut BinseqBuffer);
+        // Record methods
+        fn get_flag(self: &RecordWrapper<'_>) -> u64;
+        fn is_paired(self: &RecordWrapper<'_>) -> bool;
+        fn decode_s(self: &RecordWrapper<'_>, buffer: &mut Vec<u8>) -> Result<()>;
+        fn decode_x(self: &RecordWrapper<'_>, buffer: &mut Vec<u8>) -> Result<()>;
     }
 }
 
-// Implementation of the wrapper types
-pub struct BinseqReader {
-    inner: MmapReader,
-}
-
-pub struct BinseqRecord {
-    inner: RefRecord<'static>,
-}
-
-pub struct BinseqBuffer {
-    buffer: Vec<u8>,
-}
-
-// Function implementations
-fn new_binseq_reader(path: &str) -> binseq::Result<Box<BinseqReader>> {
+// Function to open a memory-mapped reader
+pub fn open_mmap_reader(path: &str) -> binseq::Result<Box<BinseqReaderWrapper>> {
     let reader = MmapReader::new(Path::new(path))?;
-    Ok(Box::new(BinseqReader { inner: reader }))
+    Ok(Box::new(BinseqReaderWrapper { reader }))
 }
 
-impl BinseqReader {
-    fn num_records(&self) -> usize {
-        self.inner.num_records()
+// Implementation for BinseqReaderWrapper
+impl BinseqReaderWrapper {
+    pub fn num_records(&self) -> usize {
+        self.reader.num_records()
     }
 
-    fn header_info(&self) -> ffi::BinseqHeaderInfo {
-        let header = self.inner.header();
-        ffi::BinseqHeaderInfo {
-            slen: header.slen,
-            xlen: header.xlen,
-            format_version: header.format,
-        }
+    pub unsafe fn get_record<'a>(&'a self, idx: usize) -> binseq::Result<Box<RecordWrapper<'a>>> {
+        let record = self.reader.get(idx)?;
+        Ok(Box::new(RecordWrapper { record }))
     }
 
-    fn get_record(&self, idx: usize) -> binseq::Result<Box<BinseqRecord>> {
-        let record = self.inner.get(idx)?;
-        let ref_record: RefRecord<'static> = unsafe { std::mem::transmute(record) };
-        Ok(Box::new(BinseqRecord { inner: ref_record }))
-    }
-}
-
-impl BinseqRecord {
-    fn flag(&self) -> u64 {
-        self.inner.flag()
+    pub fn get_slen(&self) -> u32 {
+        self.reader.header().slen
     }
 
-    fn is_paired(&self) -> bool {
-        self.inner.paired()
-    }
-
-    fn id(&self) -> usize {
-        self.inner.id()
-    }
-
-    fn decode_primary(&self, buffer: &mut BinseqBuffer) -> binseq::Result<usize> {
-        buffer.clear();
-        self.inner.decode_s(&mut buffer.buffer)?;
-        Ok(buffer.buffer.len())
-    }
-
-    fn decode_extended(&self, buffer: &mut BinseqBuffer) -> binseq::Result<usize> {
-        buffer.clear();
-        self.inner.decode_x(&mut buffer.buffer)?;
-        Ok(buffer.buffer.len())
+    pub fn get_xlen(&self) -> u32 {
+        self.reader.header().xlen
     }
 }
 
-fn new_binseq_buffer() -> Box<BinseqBuffer> {
-    Box::new(BinseqBuffer { buffer: Vec::new() })
-}
-
-impl BinseqBuffer {
-    fn data(&self) -> &[u8] {
-        &self.buffer
+// Implementation for RecordWrapper
+impl<'a> RecordWrapper<'a> {
+    pub fn get_flag(&self) -> u64 {
+        self.record.flag()
     }
 
-    fn data_mut(&mut self) -> &mut [u8] {
-        &mut self.buffer
+    pub fn is_paired(&self) -> bool {
+        self.record.paired()
     }
 
-    fn clear(&mut self) {
-        self.buffer.clear();
+    pub fn decode_s(&self, buffer: &mut Vec<u8>) -> binseq::Result<()> {
+        self.record.decode_s(buffer)
+    }
+
+    pub fn decode_x(&self, buffer: &mut Vec<u8>) -> binseq::Result<()> {
+        self.record.decode_x(buffer)
     }
 }
