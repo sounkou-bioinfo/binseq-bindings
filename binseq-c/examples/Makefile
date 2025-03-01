@@ -9,7 +9,7 @@ c-bindings:
 
 # Build the C example
 example: c-bindings
-	$(CC) -o simple_example simple_example.c -L../target/release -lbinseq
+	$(CC) -o simple_example simple_example.c -L../../target/release -lbinseq
 
 # Clean build artifacts
 clean:

@@ -1,14 +1,6 @@
-[package]
-name = "binseq-bindings"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["binseq-c", "binseq-cxx"]
 
-[dependencies]
+[workspace.dependencies]
 binseq = { git = "ssh://github.com/noamteyssier/binseq" }
-
-[build-dependencies]
-cbindgen = "0.28.0"
-
-[lib]
-name = "binseq"
-crate-type = ["cdylib"]

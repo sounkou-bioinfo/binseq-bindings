@@ -1,0 +1,15 @@
+[package]
+name = "binseq-cxx"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binseq = { workspace = true }
+cxx = "1.0"
+
+[build-dependencies]
+cxx-build = "1.0"
+
+[lib]
+name = "binseq_cxx"
+crate-type = ["staticlib"]
