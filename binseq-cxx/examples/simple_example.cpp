@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 
-#include "../../target/cxxbridge/binseq-cxx/src/lib.rs.h"
+#include "binseq-cxx/src/lib.rs.h"
 #include "rust/cxx.h"
 
 // Include the generated binseq C++ header
