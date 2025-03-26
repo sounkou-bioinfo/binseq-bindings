@@ -3,4 +3,4 @@ resolver = "2"
 members = ["binseq-c", "binseq-cxx"]
 
 [workspace.dependencies]
-binseq = { git = "ssh://github.com/noamteyssier/binseq" }
+binseq = { git = "ssh://github.com/arcinstitute/binseq" }
