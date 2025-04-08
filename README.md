@@ -150,7 +150,7 @@ bqtools encode <R1> <R2> -o <output>.bq
 
 BINSEQ (.bq) is a binary file format designed for efficient storage of fixed-length DNA sequences. It uses 2-bit encoding for nucleotides (A=00, C=01, G=10, T=11) and focuses exclusively on sequence data, optimizing for modern high-throughput sequencing applications.
 
-For more details on the BINSEQ format, see the original [BINSEQ documentation](https://github.com/noamteyssier/binseq).
+For more details on the BINSEQ format, see the original [BINSEQ documentation](https://github.com/arcinstitute/binseq).
 
 ## Performance
 
