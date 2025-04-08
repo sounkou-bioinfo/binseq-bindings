@@ -20,7 +20,7 @@ Prerequisites:
 1. Clone the repository:
 
 ```bash
-git clone github.com:noamteyssier/binseq-bindings.git
+git clone github.com:arcinstitute/binseq-bindings.git
 cd binseq-bindings
 ```
 
