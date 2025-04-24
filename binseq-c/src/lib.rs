@@ -4,7 +4,9 @@ use std::path::Path;
 use std::ptr;
 use std::sync::Mutex;
 
-use binseq::{MmapReader, RefRecord};
+// Update imports to use the correct module path and trait
+use binseq::bq::{MmapReader, RefRecord};
+use binseq::BinseqRecord as BinseqRecordTrait; // Import the trait with a different name
 
 // This will setup a global error message
 static LAST_ERROR: Mutex<Option<CString>> = Mutex::new(None);
@@ -100,7 +102,7 @@ pub unsafe extern "C" fn binseq_context_free(context: *mut BinseqContext) {
 pub unsafe extern "C" fn binseq_reader_open(path: *const c_char) -> *mut BinseqReader {
     if path.is_null() {
         set_last_error("Null path provided");
-        return ptr::null_mut();
+        return std::ptr::null_mut::<BinseqReader>();
     }
 
     let c_path = CStr::from_ptr(path);
@@ -108,7 +110,7 @@ pub unsafe extern "C" fn binseq_reader_open(path: *const c_char) -> *mut BinseqR
         Ok(s) => s,
         Err(_) => {
             set_last_error("Invalid UTF-8 in path");
-            return ptr::null_mut();
+            return std::ptr::null_mut::<BinseqReader>();
         }
     };
 
@@ -119,7 +121,7 @@ pub unsafe extern "C" fn binseq_reader_open(path: *const c_char) -> *mut BinseqR
         }
         Err(err) => {
             set_last_error(&format!("Failed to open file: {}", err));
-            ptr::null_mut()
+            std::ptr::null_mut::<BinseqReader>()
         }
     }
 }
@@ -231,7 +233,7 @@ pub unsafe extern "C" fn binseq_record_flag(record: *const BinseqRecord) -> u64 
         return 0;
     }
     match (*record).as_ref() {
-        Some(r) => r.flag(),
+        Some(r) => BinseqRecordTrait::flag(r),
         None => 0,
     }
 }
@@ -243,7 +245,7 @@ pub unsafe extern "C" fn binseq_record_is_paired(record: *const BinseqRecord) ->
         return false;
     }
     match (*record).as_ref() {
-        Some(r) => r.paired(),
+        Some(r) => BinseqRecordTrait::is_paired(r),  // Use trait method explicitly
         None => false,
     }
 }

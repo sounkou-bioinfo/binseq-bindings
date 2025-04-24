@@ -11,4 +11,5 @@ cbindgen = "0.28.0"
 
 [lib]
 name = "binseq"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib"]
+

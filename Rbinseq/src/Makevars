@@ -1,0 +1,30 @@
+SHELL := /bin/bash
+# h/t to @jimhester and @yihui for this parse block:
+# https://github.com/yihui/knitr/blob/dc5ead7bcfc0ebd2789fe99c527c7d91afb3de4a/Makefile#L1-L4
+# Note the portability change as suggested in the manual:
+# https://cran.r-project.org/doc/manuals/r-release/R-exts.html#Writing-portable-packages
+PKGNAME = $(shell sed -n "s/Package: *\([^ ]*\)/\1/p" ../DESCRIPTION)
+PKGVERS = $(shell sed -n "s/Version: *\([^ ]*\)/\1/p" ../DESCRIPTION)
+SRCDIR = $(CURDIR)
+LIBBINSEQ = $(SRCDIR)/../../target/release/libbinseq.a
+PKG_CFLAGS = -I$(SRCDIR) -I$(SRCDIR)/../../binseq-c -fPIC
+PKG_LIBS = -L$(SRCDIR) $(LIBBINSEQ)
+
+.PHONY: $(SHLIB) clean
+
+all: $(LIBBINSEQ) $(SHLIB)
+
+$(SHLIB): $(LIBBINSEQ)
+
+$(LIBBINSEQ):
+	@echo "Building libbinseq.a"
+	@cargo build --release --manifest-path ../../binseq-c/Cargo.toml
+	@echo "libbinseq.a built successfully"
+
+clean:
+	@echo "Cleaning up..."
+	@echo "Done!"
+	@cargo clean --manifest-path ../../binseq-c/Cargo.toml
+	@rm -rf $(SRCDIR)/../../target
+	@echo "Cargo cleaned up!"
+	@echo "Done!"
